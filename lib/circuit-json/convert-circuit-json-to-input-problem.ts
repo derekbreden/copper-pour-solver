@@ -99,7 +99,15 @@ export const convertCircuitJsonToInputProblem = (
       }
     } else if (elm.type === "pcb_plated_hole") {
       const platedHole = elm as PcbPlatedHole
-      if (!platedHole.layers.includes(options.layer)) continue
+      // A plated THROUGH-hole's barrel is conductive on every copper layer, but its .layers
+      // only lists where it has pad copper (top/bottom). Skipping it on the inner layers lets
+      // an inner copper pour flood solid over every through-hole pin with no anti-pad, shorting
+      // that plane to the pin's net. Treat a hole that spans top & bottom as present on ALL
+      // layers, so the pour cuts an anti-pad (or connects, if the hole is on the pour's net).
+      const isThroughHole =
+        platedHole.layers.includes("top") &&
+        platedHole.layers.includes("bottom")
+      if (!isThroughHole && !platedHole.layers.includes(options.layer)) continue
 
       let connectivityKey = getSubcircuitConnectivityKeyForId(
         platedHole.pcb_plated_hole_id,
@@ -136,6 +144,26 @@ export const convertCircuitJsonToInputProblem = (
             maxY: platedHole.y + rectHeight / 2,
           },
         } as InputRectPad)
+      } else if (platedHole.shape === "pill" || platedHole.shape === "oval") {
+        // A pill / oval plated hole (e.g. a USB-C shield leg) matches neither branch above, so
+        // the stock solver drops it and an inner pour floods solid over it with no anti-pad.
+        // Emit its copper extent (outer_width/height) as a native pill pad so the pour antipads
+        // it like any other pad.
+        if (platedHole.outer_width > 0 && platedHole.outer_height > 0) {
+          pads.push({
+            shape: "pill",
+            padId: platedHole.pcb_plated_hole_id,
+            layer: options.layer,
+            connectivityKey,
+            x: platedHole.x,
+            y: platedHole.y,
+            width: platedHole.outer_width,
+            height: platedHole.outer_height,
+            radius:
+              Math.min(platedHole.outer_width, platedHole.outer_height) / 2,
+            ccwRotation: platedHole.ccw_rotation ?? 0,
+          } as InputPillPad)
+        }
       }
     } else if (elm.type === "pcb_hole") {
       const hole = elm as PcbHole
@@ -186,7 +214,14 @@ export const convertCircuitJsonToInputProblem = (
       }
     } else if (elm.type === "pcb_via") {
       const via = elm as PcbVia
-      if (!via.layers.includes(options.layer)) continue
+      // A through-via's barrel is conductive on every copper layer, but via.layers only lists
+      // its endpoints (top/bottom) — the same case the plated-hole guard above handles. Skipping
+      // it on the inner layers lets an inner copper pour flood solid over it with no anti-pad,
+      // shorting that plane to the via's net. Treat a top & bottom via as present on ALL layers,
+      // so each inner plane cuts an anti-pad (or connects, if the via is on the pour's net).
+      const isThroughVia =
+        via.layers.includes("top") && via.layers.includes("bottom")
+      if (!isThroughVia && !via.layers.includes(options.layer)) continue
 
       const connectivityKey: string =
         getSubcircuitConnectivityKeyForId(via.pcb_via_id) ??
