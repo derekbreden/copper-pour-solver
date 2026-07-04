@@ -5,6 +5,7 @@ import { generateBRep } from "./copper-pour/generate-brep"
 import { getBoardPolygon } from "./copper-pour/get-board-polygon"
 import {
   crossSectionToCopperPourIslands,
+  removeSliverIslands,
   removeTinyIslands,
   subtractBlockersFromPour,
 } from "./copper-pour/manifold-geometry-adapter"
@@ -52,7 +53,9 @@ export class CopperPourPipelineSolver extends BasePipelineSolver<InputProblem> {
       const finalPour = removeTinyIslands(
         subtractBlockersFromPour(boardPolygon, polygonsToSubtract),
       )
-      const pourIslands = crossSectionToCopperPourIslands(finalPour)
+      const pourIslands = removeSliverIslands(
+        crossSectionToCopperPourIslands(finalPour),
+      )
 
       const new_breps = generateBRep(pourIslands)
       brep_shapes.push(...new_breps)

@@ -135,6 +135,45 @@ export const removeTinyIslands = (
   return composeCrossSections(islands)
 }
 
+// Fab minimum copper feature width (mm). A poured fragment narrower than this can't be
+// reliably etched — it's a floating acid-trap, not usable copper. Matches JLCPCB's min
+// trace/feature width and the board's downstream dropPourSlivers backstop.
+export const DEFAULT_MIN_FEATURE_WIDTH = 0.1
+// A sub-min-feature-width island this small (mm²) is a sliver; larger thin shapes are
+// left alone so a legitimate plane pinched to a thin waist is never mistaken for one.
+export const DEFAULT_MAX_SLIVER_AREA = 0.15
+
+const ringPerimeter = (ring: PolygonRing): number => {
+  let perimeter = 0
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]!
+    const b = ring[(i + 1) % ring.length]!
+    perimeter += Math.hypot(b.x - a.x, b.y - a.y)
+  }
+  return perimeter
+}
+
+/**
+ * Drop copper-pour islands that are DFM slivers. removeTinyIslands (area ≥ ~1e-8 mm²)
+ * only clears numerically-degenerate geometry; this is the manufacturability filter on
+ * top of it. A shape's mean width is 2·area/perimeter; an island is a sliver when it is
+ * BOTH narrower than the fab minimum feature width AND small in area — so the flood/
+ * subtract can't leave a floating acid-trap behind, while a large plane (even one with a
+ * thin waist) is never removed. Islands are already disconnected pieces, so dropping one
+ * severs nothing.
+ */
+export const removeSliverIslands = (
+  islands: CopperPourIsland[],
+  minFeatureWidth = DEFAULT_MIN_FEATURE_WIDTH,
+  maxSliverArea = DEFAULT_MAX_SLIVER_AREA,
+): CopperPourIsland[] =>
+  islands.filter((island) => {
+    const area = Math.abs(signedArea(island.outerRing))
+    const perimeter = ringPerimeter(island.outerRing)
+    const width = perimeter > 0 ? (2 * area) / perimeter : 0
+    return !(width < minFeatureWidth && area < maxSliverArea)
+  })
+
 export const crossSectionToCopperPourIslands = (
   section: CrossSection,
 ): CopperPourIsland[] => {

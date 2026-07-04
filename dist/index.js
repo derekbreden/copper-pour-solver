@@ -266,6 +266,23 @@ var removeTinyIslands = (section, minArea = DEFAULT_MIN_ISLAND_AREA) => {
   const islands = section.decompose().filter((island) => Math.abs(island.area()) >= minScaledArea);
   return composeCrossSections(islands);
 };
+var DEFAULT_MIN_FEATURE_WIDTH = 0.1;
+var DEFAULT_MAX_SLIVER_AREA = 0.15;
+var ringPerimeter = (ring) => {
+  let perimeter = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    perimeter += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return perimeter;
+};
+var removeSliverIslands = (islands, minFeatureWidth = DEFAULT_MIN_FEATURE_WIDTH, maxSliverArea = DEFAULT_MAX_SLIVER_AREA) => islands.filter((island) => {
+  const area = Math.abs(signedArea(island.outerRing));
+  const perimeter = ringPerimeter(island.outerRing);
+  const width = perimeter > 0 ? 2 * area / perimeter : 0;
+  return !(width < minFeatureWidth && area < maxSliverArea);
+});
 var crossSectionToCopperPourIslands = (section) => {
   const islands = [];
   for (const island of section.decompose()) {
@@ -525,7 +542,9 @@ var CopperPourPipelineSolver = class extends BasePipelineSolver {
       const finalPour = removeTinyIslands(
         subtractBlockersFromPour(boardPolygon, polygonsToSubtract)
       );
-      const pourIslands = crossSectionToCopperPourIslands(finalPour);
+      const pourIslands = removeSliverIslands(
+        crossSectionToCopperPourIslands(finalPour)
+      );
       const new_breps = generateBRep(pourIslands);
       brep_shapes.push(...new_breps);
     }
